@@ -1,36 +1,30 @@
 from fastapi import FastAPI
+from db import engine
+import models
+from fastapi.staticfiles import StaticFiles
+from routes import router 
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.include_router(router)
 
-# CORS configuration
-origins = ["*"]  # Allow all origins for testing
+from fastapi.middleware.cors import CORSMiddleware
 
-# Add CORSMiddleware with very permissive settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["https://bazaarpakistan.up.railway.app","*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+@app.options("/{rest_of_path:path}")
+async def options_route(rest_of_path: str):
+    return {"detail": "OK"}
+
 @app.get("/")
 def read_root():
-    return {"message": "API is working!"}
-
-@app.get("/products")
-def get_products():
-    return JSONResponse(
-        content={"products": ["test product"]},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS, PUT, DELETE",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
-
-@app.options("/products")
-async def options_products():
-    return {}
+    return {"message": "Welcome to the Bazaar app!"}
