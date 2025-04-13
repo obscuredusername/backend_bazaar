@@ -17,7 +17,7 @@ class UserResponse(BaseModel):
     contact_no: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ProductCreate(BaseModel):
     title: str
@@ -40,7 +40,7 @@ class ProductResponse(BaseModel):
     type: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ProductDetailResponse(BaseModel):
     title: str
@@ -56,7 +56,7 @@ class ProductDetailResponse(BaseModel):
     user: UserResponse 
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class Login(BaseModel):
     email: EmailStr
