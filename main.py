@@ -11,27 +11,18 @@ models.Base.metadata.create_all(bind=engine)
 # Initialize FastAPI app
 app = FastAPI()
 
-# Static files handling
+# ✅ CORS middleware should be right after creating app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://bazaarpakistan.up.railway.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ⬇️ Routes and other stuff come after
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://bazaarpakistan.up.railway.app"],  # Allow only this origin
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 app.include_router(router)
-
-# CORS middleware setup
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://bazaarpakistan.up.railway.app"],  # Allow only this origin
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Root endpoint
 @app.get("/")
