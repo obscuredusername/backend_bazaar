@@ -36,6 +36,9 @@ def get_db():
 # Test connection when this module is imported
 def test_connection():
     try:
+        # Create inspector first
+        inspector = inspect(engine)
+        
         # Import here to avoid circular imports
         from models import User
         
@@ -49,7 +52,6 @@ def test_connection():
             logger.info(f"✅ Database connection successful! Found user: {user.username}, email: {user.email}")
         else:
             # Check if the users table exists
-            inspector = inspect(engine)
             if 'user' in inspector.get_table_names():
                 logger.info("✅ Database connected successfully but no users found in the table.")
             else:

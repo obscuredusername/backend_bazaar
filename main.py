@@ -14,7 +14,7 @@ app = FastAPI()
 # ✅ CORS middleware should be right after creating app
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://bazaarpakistan.up.railway.app"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
