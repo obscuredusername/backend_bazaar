@@ -24,7 +24,8 @@ app.add_middleware(
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.include_router(router)
 
-# Root endpoint
+
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Bazaar app!"}
