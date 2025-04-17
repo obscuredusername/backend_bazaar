@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, s
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from google.oauth2 import id_token
+from google.auth.transport import requests
 import os
 import logging
 from datetime import date
@@ -11,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 from schemas import (
     UserCreate, UserResponse, ProductResponse, 
-    ProductDetailResponse, Login
+    ProductDetailResponse, Login, GoogleAuth
 )
 from db import get_db
 
@@ -454,6 +456,134 @@ async def login(login: Login, db: Session = Depends(get_db)):
         raise he
     except Exception as e:
         logger.error(f"Login error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+@router.post("/google-login")
+async def google_login(auth: GoogleAuth, db: Session = Depends(get_db)):
+    """User login with Google OAuth"""
+    try:
+        # Verify the Google token
+        print("jere")
+        CLIENT_ID = "96398954937-fro4o9nvvftfue7a5q3ghhm7bbs1kqi4.apps.googleusercontent.com"  # Replace with your Google Client ID
+        idinfo = id_token.verify_oauth2_token(auth.id_token, requests.Request(), CLIENT_ID)
+        
+        # Check if token is valid
+        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token issuer"
+            )
+        
+        # Extract user information from token
+        email = idinfo['email']
+        
+        # Check if user exists
+        user = db.query(User).filter(User.email == email).first()
+        
+        if not user:
+            # User doesn't exist, return error suggesting signup
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found. Please sign up first."
+            )
+        
+        logger.info(f"User logged in with Google: {email}")
+        return {"message": "Login successful", "user_id": user.id, "username": user.username}
+        
+    except ValueError as e:
+        # Invalid token
+        logger.error(f"Google token validation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token"
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Google login error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@router.post("/google-signup", response_model=UserResponse)
+async def google_signup(auth: GoogleAuth, db: Session = Depends(get_db)):
+    """User signup with Google OAuth"""
+    try:
+        # Verify the Google token
+        
+        CLIENT_ID = "96398954937-fro4o9nvvftfue7a5q3ghhm7bbs1kqi4.apps.googleusercontent.com"  # Replace with your Google Client ID
+        idinfo = id_token.verify_oauth2_token(auth.id_token, requests.Request(), CLIENT_ID)
+        
+        # Check if token is valid
+        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token issuer"
+            )
+        
+        # Extract user information from token
+        email = idinfo['email']
+        name = idinfo.get('name', '')
+        
+        # Generate username from email if name is not available
+        username = name.replace(" ", "_").lower() if name else email.split('@')[0]
+        base_username = username
+        
+        # Check if email already exists
+        if db.query(User).filter(User.email == email).first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+        
+        # Make sure username is unique
+        counter = 1
+        while db.query(User).filter(User.username == username).first():
+            username = f"{base_username}_{counter}"
+            counter += 1
+        
+        # Create a random secure password for Google auth users
+        # They will authenticate via Google, not with this password
+        google_password = pwd_context.hash(os.urandom(24).hex())
+        
+        # Create new user
+        new_user = User(
+            username=username,
+            email=email,
+            password=google_password,  # Hashed random password
+            joining_date=date.today(),
+            contact_no=""
+        )
+        
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        logger.info(f"User signed up with Google: {email}")
+        return new_user
+        
+    except ValueError as e:
+        # Invalid token
+        logger.error(f"Google token validation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token"
+        )
+    except HTTPException as he:
+        print("jere")
+        raise he
+    except IntegrityError as ie:
+        db.rollback()
+        logger.error(f"Database integrity error: {str(ie)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Database error - possibly duplicate entry"
+        )
+    except Exception as e:
+        logger.error(f"Google signup error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"

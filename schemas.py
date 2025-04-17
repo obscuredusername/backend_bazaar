@@ -61,3 +61,6 @@ class ProductDetailResponse(BaseModel):
 class Login(BaseModel):
     email: EmailStr
     password: str
+
+class GoogleAuth(BaseModel):
+    id_token: str
