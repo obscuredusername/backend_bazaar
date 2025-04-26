@@ -31,6 +31,10 @@ class ProductCreate(BaseModel):
     price: float
     category: str
 
+
+class AdsAuth(BaseModel):
+    id: int
+
 class ProductResponse(BaseModel):
     id: int
     title: str
@@ -41,6 +45,10 @@ class ProductResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class AdsResponse(BaseModel):
+    message: str
+    adslist: List[ProductResponse] = []
 
 class ProductDetailResponse(BaseModel):
     title: str

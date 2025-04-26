@@ -12,7 +12,7 @@ from models import User, Product
 from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 from schemas import (
-    UserCreate, UserResponse, ProductResponse, 
+    UserCreate, UserResponse, AdsResponse, AdsAuth, ProductResponse, 
     ProductDetailResponse, Login, GoogleAuth
 )
 from db import get_db
@@ -508,6 +508,50 @@ async def google_login(auth: GoogleAuth, db: Session = Depends(get_db)):
             detail="Internal server error"
         )
 
+@router.post("/ads", response_model=AdsResponse)
+async def adsresponse(auth: AdsAuth, db: Session = Depends(get_db)):
+    try:
+        if not auth.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Id is missing"
+            )
+        
+        ads = db.query(Product).filter(Product.user_id == auth.id).all()
+        print(Product.user_id)
+        if not ads:
+            # Return empty response with a message
+            return AdsResponse(
+                message="No ads found",
+                adslist=[]
+            )
+            
+        # Map all ads to ProductResponse objects
+        ads_list = [
+            ProductResponse(
+                id=ad.id,
+                title=ad.title,
+                images=ad.images,
+                category=ad.category,
+                price=ad.price,
+                type=ad.type
+            ) for ad in ads
+        ]
+        
+        return AdsResponse(
+            message="Ads retrieved successfully",
+            adslist=ads_list
+        )
+        
+    except HTTPException as he:
+        logger.error(f"HTTP error during ads retrieval: {str(he)}")
+        raise he
+    except Exception as e:
+        logger.error(f"Ads retrieval error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
 @router.post("/google-signup", response_model=UserResponse)
 async def google_signup(auth: GoogleAuth, db: Session = Depends(get_db)):
     """User signup with Google OAuth"""
