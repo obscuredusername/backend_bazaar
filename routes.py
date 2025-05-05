@@ -462,10 +462,10 @@ async def login(login: Login, db: Session = Depends(get_db)):
         )
 @router.post("/google-login")
 async def google_login(auth: GoogleAuth, db: Session = Depends(get_db)):
-    """User login with Google OAuth"""
+    """User login with Google OAuth - with automatic signup if user doesn't exist"""
     try:
         # Verify the Google token
-        CLIENT_ID = "96398954937-fro4o9nvvftfue7a5q3ghhm7bbs1kqi4.apps.googleusercontent.com"  # Replace with your Google Client ID
+        CLIENT_ID = "96398954937-fro4o9nvvftfue7a5q3ghhm7bbs1kqi4.apps.googleusercontent.com"
         idinfo = id_token.verify_oauth2_token(auth.id_token, requests.Request(), CLIENT_ID)
         
         # Check if token is valid
@@ -481,12 +481,41 @@ async def google_login(auth: GoogleAuth, db: Session = Depends(get_db)):
         # Check if user exists
         user = db.query(User).filter(User.email == email).first()
         
+        # If user doesn't exist, create one automatically
         if not user:
-            # User doesn't exist, return error suggesting signup
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found. Please sign up first."
+            logger.info(f"User not found with Google email: {email}. Creating new account.")
+            
+            # Extract name from Google token
+            name = idinfo.get('name', '')
+            
+            # Generate username from email if name is not available
+            username = name.replace(" ", "_").lower() if name else email.split('@')[0]
+            base_username = username
+            
+            # Make sure username is unique
+            counter = 1
+            while db.query(User).filter(User.username == username).first():
+                username = f"{base_username}_{counter}"
+                counter += 1
+            
+            # Create a random secure password for Google auth users
+            google_password = pwd_context.hash(os.urandom(24).hex())
+            
+            # Create new user
+            new_user = User(
+                username=username,
+                email=email,
+                password=google_password,  # Hashed random password
+                joining_date=date.today(),
+                contact_no=""
             )
+            
+            db.add(new_user)
+            db.commit()
+            db.refresh(new_user)
+            
+            logger.info(f"User automatically signed up with Google: {email}")
+            user = new_user
         
         logger.info(f"User logged in with Google: {email}")
         return {"message": "Login successful", "user_id": user.id, "username": user.username}
@@ -506,7 +535,7 @@ async def google_login(auth: GoogleAuth, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
         )
-
+        
 @router.post("/ads", response_model=AdsResponse)
 async def adsresponse(auth: AdsAuth, db: Session = Depends(get_db)):
     try:
