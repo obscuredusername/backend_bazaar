@@ -465,7 +465,6 @@ async def google_login(auth: GoogleAuth, db: Session = Depends(get_db)):
     """User login with Google OAuth"""
     try:
         # Verify the Google token
-        print("jere")
         CLIENT_ID = "96398954937-fro4o9nvvftfue7a5q3ghhm7bbs1kqi4.apps.googleusercontent.com"  # Replace with your Google Client ID
         idinfo = id_token.verify_oauth2_token(auth.id_token, requests.Request(), CLIENT_ID)
         
@@ -513,30 +512,61 @@ async def adsresponse(auth: AdsAuth, db: Session = Depends(get_db)):
     try:
         if not auth.id:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_400_BAD_REQUEST,  
                 detail="Id is missing"
             )
         
         ads = db.query(Product).filter(Product.user_id == auth.id).all()
-        print(Product.user_id)
         if not ads:
             # Return empty response with a message
             return AdsResponse(
                 message="No ads found",
                 adslist=[]
             )
-            
-        # Map all ads to ProductResponse objects
-        ads_list = [
-            ProductResponse(
-                id=ad.id,
-                title=ad.title,
-                images=ad.images,
-                category=ad.category,
-                price=ad.price,
-                type=ad.type
-            ) for ad in ads
-        ]
+        
+        ads_list = []
+        for ad in ads:
+            # Process images to convert them to API URLs
+            api_paths = []
+            if hasattr(ad, 'images') and ad.images:
+                # Process PostgreSQL array format
+                if isinstance(ad.images, str):
+                    images_str = ad.images.strip('{}')
+                    image_paths = [path.strip() for path in images_str.split(',') if path.strip()]
+                else:
+                    image_paths = ad.images if ad.images else []
+
+                # Convert paths to API-accessible URLs
+                for path in image_paths:
+                    if path:
+                        # Extract the date dir and filename parts
+                        parts = path.split('/')
+                        
+                        # Looking for pattern like uploads/20250403/filename.jpg
+                        if len(parts) >= 2:
+                            # Check if parts[0] is 'uploads'
+                            if parts[0] == 'uploads':
+                                date_dir = parts[1]  # 20250403
+                                filename = '/'.join(parts[2:])  # everything after date_dir
+                                # Form the correct API URL path
+                                api_paths.append(f"/uploads/{date_dir}/{filename}")
+                            else:
+                                # If 'uploads' is not in the path, use as is
+                                api_paths.append(f"/uploads/{path}")
+                        else:
+                            # Fallback if path format is unexpected
+                            api_paths.append(path)
+
+            ads_list.append(
+                ProductResponse(
+                    id=ad.id,
+                    title=ad.title,
+                    images=api_paths,  # Use processed API URLs
+                    category=ad.category,
+                    price=ad.price,
+                    type=ad.type
+                )
+            )
         
         return AdsResponse(
             message="Ads retrieved successfully",
@@ -552,6 +582,202 @@ async def adsresponse(auth: AdsAuth, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
         )
+
+@router.delete("/products/{product_id}", status_code=status.HTTP_200_OK)
+async def delete_product(
+    product_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a product by ID"""
+    try:
+        # Find the product
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Product not found"
+            )
+        
+        # Delete image files if they exist
+        if hasattr(product, 'images') and product.images:
+            try:
+                # Process PostgreSQL array format
+                if isinstance(product.images, str):
+                    images_str = product.images.strip('{}')
+                    image_paths = [path.strip() for path in images_str.split(',') if path.strip()]
+                else:
+                    image_paths = product.images if product.images else []
+                
+                # Attempt to delete each image file
+                for path in image_paths:
+                    if path and os.path.exists(path):
+                        try:
+                            os.remove(path)
+                            logger.info(f"Deleted image file: {path}")
+                        except Exception as file_error:
+                            logger.warning(f"Could not delete image file {path}: {str(file_error)}")
+            except Exception as img_error:
+                logger.error(f"Error processing images for deletion: {str(img_error)}")
+        
+        # Delete the product from database
+        db.delete(product)
+        db.commit()
+        
+        logger.info(f"Product {product_id} deleted successfully")
+        return {"message": "Product deleted successfully"}
+        
+    except HTTPException as he:
+        logger.error(f"HTTP error while deleting product: {str(he)}")
+        raise he
+    except Exception as e:
+        logger.error(f"Error deleting product {product_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error deleting product"
+        )
+
+@router.put("/products/{product_id}", response_model=ProductResponse)
+async def update_product(
+    product_id: int,
+    title: str = Form(None),
+    description: str = Form(None),
+    city: str = Form(None),
+    location: str = Form(None),
+    return_policy: str = Form(None),
+    size: str = Form(None),
+    type: str = Form(None),
+    price: float = Form(None),
+    category: str = Form(None),
+    images: List[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
+    """Update a product by ID"""
+    try:
+        # Find the product
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Product not found"
+            )
+        
+        # Update product fields if provided
+        if title is not None:
+            product.title = title
+        if description is not None:
+            product.description = description
+        if city is not None:
+            product.city = city
+        if location is not None:
+            product.location = location
+        if return_policy is not None:
+            product.return_policy = return_policy
+        if size is not None:
+            product.size = size
+        if type is not None:
+            product.type = type
+        if price is not None:
+            product.price = float(price)
+        if category is not None:
+            product.category = category
+            
+        # Handle image updates if provided
+        if images and any(image.filename for image in images):
+            # Process current images
+            current_images = []
+            if hasattr(product, 'images') and product.images:
+                # Process PostgreSQL array format
+                if isinstance(product.images, str):
+                    images_str = product.images.strip('{}')
+                    current_images = [path.strip() for path in images_str.split(',') if path.strip()]
+                else:
+                    current_images = product.images if product.images else []
+            
+            # Process new images
+            new_image_paths = []
+            for image in images:
+                if image.filename:  # Check if a file was actually uploaded
+                    try:
+                        if not image.content_type.startswith('image/'):
+                            raise HTTPException(
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"File {image.filename} is not an image"
+                            )
+
+                        file_path = save_uploaded_file(image)
+                        with open(file_path, "wb") as f:
+                            content = await image.read()
+                            f.write(content)
+                        new_image_paths.append(file_path)
+                        logger.info(f"Saved new image: {file_path}")
+
+                    except HTTPException:
+                        raise
+                    except Exception as e:
+                        logger.error(f"Error saving image {image.filename}: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"Error saving image: {str(e)}"
+                        )
+            
+            # Combine existing and new images
+            combined_images = current_images + new_image_paths
+            
+            # Convert to PostgreSQL array format
+            images_pg_array = "{" + ",".join(combined_images) + "}"
+            product.images = images_pg_array
+        
+        # Save changes to database
+        db.commit()
+        db.refresh(product)
+        
+        logger.info(f"Product {product_id} updated successfully")
+        
+        # Process images for response
+        if hasattr(product, 'images') and product.images:
+            # Process PostgreSQL array format
+            if isinstance(product.images, str):
+                images_str = product.images.strip('{}')
+                image_paths = [path.strip() for path in images_str.split(',') if path.strip()]
+            else:
+                image_paths = product.images if product.images else []
+            
+            # Make paths appropriate for frontend
+            api_paths = []
+            for path in image_paths:
+                if path:
+                    parts = path.split('/')
+                    if len(parts) >= 2:
+                        if parts[0] == 'uploads':
+                            date_dir = parts[1]
+                            filename = '/'.join(parts[2:])
+                            api_paths.append(f"/uploads/{date_dir}/{filename}")
+                        else:
+                            api_paths.append(f"/uploads/{path}")
+                    else:
+                        api_paths.append(path)
+            
+            # Update the images attribute for response
+            product.images = api_paths
+        
+        return product
+        
+    except HTTPException as he:
+        logger.error(f"HTTP error while updating product: {str(he)}")
+        raise he
+    except ValueError as ve:
+        logger.error(f"Validation error: {str(ve)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid data format: {str(ve)}"
+        )
+    except Exception as e:
+        logger.error(f"Error updating product {product_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error updating product"
+        )
+
 @router.post("/google-signup", response_model=UserResponse)
 async def google_signup(auth: GoogleAuth, db: Session = Depends(get_db)):
     """User signup with Google OAuth"""
